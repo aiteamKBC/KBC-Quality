@@ -1,7 +1,6 @@
 import type { RouteObject } from "react-router-dom";
 import { Navigate } from "react-router-dom";
 import NotFound from "@/pages/NotFound";
-import LoginPage from "@/pages/login/page";
 import DashboardPage from "@/pages/dashboard/page";
 import OfstedPage from "@/pages/ofsted/page";
 import LearnersPage from "@/pages/learners/page";
@@ -18,7 +17,6 @@ import SettingsPage from "@/pages/settings/page";
 
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/dashboard" replace /> },
-  { path: "/login", element: <LoginPage /> },
   { path: "/dashboard", element: <DashboardPage /> },
   { path: "/ofsted", element: <OfstedPage /> },
   { path: "/learners", element: <LearnersPage /> },

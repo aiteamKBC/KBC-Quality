@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import kbcLogo from '@/assets/KBC logo.png';
 
 interface NavItem {
   path: string;
@@ -32,11 +33,13 @@ export default function Sidebar() {
     <aside className="w-56 min-h-screen bg-slate-900 flex flex-col flex-shrink-0">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-slate-700">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center flex-shrink-0">
-            <i className="ri-shield-check-line text-white text-sm"></i>
-          </div>
-          <div>
+        <div className="flex items-center gap-3">
+          <img
+            src={kbcLogo}
+            alt="Kent Business College"
+            className="h-8 w-auto max-w-[7.5rem] object-contain flex-shrink-0"
+          />
+          <div className="min-w-0">
             <div className="text-white text-xs font-bold leading-tight">KBC Quality</div>
             <div className="text-slate-400 text-xs leading-tight">Ofsted Platform</div>
           </div>

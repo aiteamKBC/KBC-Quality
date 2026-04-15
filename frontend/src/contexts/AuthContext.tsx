@@ -1,8 +1,9 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
-import { mockCurrentUser } from '@/mocks/users';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { api, login as apiLogin, logout as apiLogout, clearTokens, getAccessToken } from '@/lib/api';
 
 interface User {
-  id: string;
+  id: number;
+  username: string;
   full_name: string;
   role: string;
   email: string;
@@ -13,30 +14,57 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  initialised: boolean;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [initialised, setInitialised] = useState(false);
 
-  const login = async (email: string, _password: string): Promise<boolean> => {
-    // Mock login - accept any credentials for demo
-    if (email) {
-      setUser(mockCurrentUser);
-      return true;
+  // On mount: if a token exists in localStorage, restore the session
+  useEffect(() => {
+    if (!getAccessToken()) {
+      setInitialised(true);
+      return;
     }
-    return false;
+
+    api.get<User>('/users/me/')
+      .then(setUser)
+      .catch(() => {
+        // Token is expired or invalid — clear it
+        clearTokens();
+      })
+      .finally(() => setInitialised(true));
+  }, []);
+
+  const login = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const response = await apiLogin(email, password);
+      // User profile comes embedded in the token response — no extra /me/ call needed
+      setUser(response.user);
+      return { ok: true };
+    } catch (err) {
+      clearTokens();
+      const message = err instanceof Error ? err.message : 'Login failed';
+      // Translate Django's generic auth message into a friendlier one
+      const userFacing = message.includes('No active account')
+        ? 'No account found with those credentials.'
+        : message;
+      return { ok: false, error: userFacing };
+    }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await apiLogout();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, initialised, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

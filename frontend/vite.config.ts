@@ -6,6 +6,7 @@ import AutoImport from "unplugin-auto-import/vite";
 
 const base = process.env.BASE_PATH || "/";
 const isPreview = process.env.IS_PREVIEW ? true : false;
+const djangoApiUrl = process.env.DJANGO_API_URL || "http://localhost:8000";
 //const proxyPlugins = isPreview ? [readdyJsxRuntimeProxyPlugin()] : [];
 // https://vite.dev/config/
 export default defineConfig({
@@ -82,5 +83,11 @@ export default defineConfig({
   server: {
     port: 3000,
     host: "0.0.0.0",
+    proxy: {
+      "/api": {
+        target: djangoApiUrl,
+        changeOrigin: true,
+      },
+    },
   },
 });

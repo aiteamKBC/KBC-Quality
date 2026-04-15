@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/feature/AppLayout';
 import RagBadge from '@/components/base/RagBadge';
-import { mockLearners, mockProgrammes } from '@/mocks/learners';
 import CustomSelect from '@/components/base/CustomSelect';
+import { fetchLearners } from '@/lib/learnersApi';
+import type { Learner } from '@/types/learners';
 
 export default function LearnersPage() {
   const navigate = useNavigate();
+  const [learners, setLearners] = useState<Learner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [ragFilter, setRagFilter] = useState('All');
   const [progFilter, setProgFilter] = useState('All');
@@ -14,11 +18,41 @@ export default function LearnersPage() {
   const [sortField, setSortField] = useState('full_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const coaches = [...new Set(mockLearners.map((l) => l.coach))];
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLearners() {
+      try {
+        setLoading(true);
+        setError('');
+        const data = await fetchLearners();
+        if (!cancelled) {
+          setLearners(data);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Failed to load learners');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadLearners();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const coaches = [...new Set(learners.map((l) => l.coach).filter(Boolean))];
+  const programmes = [...new Set(learners.map((l) => l.programme).filter(Boolean))];
 
   const programmeOptions = [
     { value: 'All', label: 'All Programmes', icon: 'ri-book-open-line' },
-    ...mockProgrammes.map((p) => ({ value: p.name, label: p.name, icon: 'ri-graduation-cap-line' })),
+    ...programmes.map((programme) => ({ value: programme, label: programme, icon: 'ri-graduation-cap-line' })),
   ];
 
   const coachOptions = [
@@ -26,7 +60,7 @@ export default function LearnersPage() {
     ...coaches.map((c) => ({ value: c, label: c, icon: 'ri-user-line' })),
   ];
 
-  const filtered = mockLearners
+  const filtered = learners
     .filter((l) => {
       const matchSearch = !search || l.full_name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()) || l.employer.toLowerCase().includes(search.toLowerCase());
       const matchRag = ragFilter === 'All' || l.rag_status === ragFilter;
@@ -48,9 +82,9 @@ export default function LearnersPage() {
   };
 
   const ragCounts = {
-    Green: mockLearners.filter(l => l.rag_status === 'Green').length,
-    Amber: mockLearners.filter(l => l.rag_status === 'Amber').length,
-    Red: mockLearners.filter(l => l.rag_status === 'Red').length,
+    Green: learners.filter(l => l.rag_status === 'Green').length,
+    Amber: learners.filter(l => l.rag_status === 'Amber').length,
+    Red: learners.filter(l => l.rag_status === 'Red').length,
   };
 
   const hasActiveFilters = ragFilter !== 'All' || progFilter !== 'All' || coachFilter !== 'All' || !!search;
@@ -62,11 +96,8 @@ export default function LearnersPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Learners</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{mockLearners.length} active learners across {mockProgrammes.length} programmes</p>
+            <p className="text-sm text-slate-500 mt-0.5">{learners.length} active learners across {programmes.length} programmes</p>
           </div>
-          <button className="btn-primary flex items-center gap-1.5">
-            <i className="ri-user-add-line text-xs"></i> Add Learner
-          </button>
         </div>
 
         {/* RAG Summary */}
@@ -134,10 +165,22 @@ export default function LearnersPage() {
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <span className="text-xs text-slate-500">{filtered.length} learners</span>
-            <button className="btn-ghost text-xs flex items-center gap-1">
-              <i className="ri-download-2-line"></i> Export CSV
-            </button>
           </div>
+          {loading && (
+            <div className="px-4 py-10 text-center text-sm text-slate-400 flex flex-col items-center gap-2">
+              <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              Loading learners...
+            </div>
+          )}
+          {!loading && error && (
+            <div className="px-4 py-10 text-center">
+              <div className="text-sm text-red-500">{error}</div>
+              <button className="btn-primary mt-4" onClick={() => window.location.reload()}>
+                Retry
+              </button>
+            </div>
+          )}
+          {!loading && !error && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -151,7 +194,6 @@ export default function LearnersPage() {
                     { field: 'otjh_logged', label: 'OTJH' },
                     { field: 'progress', label: 'Progress' },
                     { field: 'rag_status', label: 'RAG' },
-                    { field: 'next_review', label: 'Next Review' },
                   ].map((col) => (
                     <th key={col.field} className="table-th cursor-pointer hover:bg-slate-100" onClick={() => handleSort(col.field)}>
                       <div className="flex items-center gap-1">
@@ -212,7 +254,6 @@ export default function LearnersPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="table-td text-xs text-slate-500">{l.next_review}</td>
                     <td className="table-td">
                       <button className="btn-ghost text-xs py-1 px-2" onClick={(e) => { e.stopPropagation(); navigate(`/learners/${l.id}`); }}>
                         View <i className="ri-arrow-right-line"></i>
@@ -223,7 +264,8 @@ export default function LearnersPage() {
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && (
+          )}
+          {!loading && !error && filtered.length === 0 && (
             <div className="text-center py-10 text-slate-400 text-sm">No learners match your filters</div>
           )}
         </div>

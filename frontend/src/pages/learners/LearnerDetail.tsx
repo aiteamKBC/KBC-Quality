@@ -1,124 +1,153 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import AppLayout from '@/components/feature/AppLayout';
-import RagBadge from '@/components/base/RagBadge';
-import LearnerAttendanceChart from './components/LearnerAttendanceChart';
-import LearnerOTJHChart from './components/LearnerOTJHChart';
-import LearnerProgressChart from './components/LearnerProgressChart';
-import LearnerTimeline from './components/LearnerTimeline';
-import { mockLearners } from '@/mocks/learners';
-import { mockEvidence } from '@/mocks/evidence';
-import { mockActions } from '@/mocks/actions';
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import AppLayout from "@/components/feature/AppLayout";
+import RagBadge from "@/components/base/RagBadge";
+import { fetchLearner } from "@/lib/learnersApi";
+import type { Learner } from "@/types/learners";
+import LearnerAttendanceChart from "./components/LearnerAttendanceChart";
+import LearnerOTJHChart from "./components/LearnerOTJHChart";
+import LearnerProgressChart from "./components/LearnerProgressChart";
+import LearnerTimeline from "./components/LearnerTimeline";
 
-const tabs = ['Overview', 'Attendance & OTJH', 'Progress Reviews', 'Notes & Timeline', 'Evidence', 'Actions', 'Safeguarding'];
-
-const reviews = [
-  { date: '2024-11-20', status: 'Completed', signed: true,  notes: 'Good progress. OTJH catch-up plan agreed with employer.' },
-  { date: '2024-08-15', status: 'Completed', signed: true,  notes: 'On track. Employer feedback positive. Portfolio building well.' },
-  { date: '2024-05-10', status: 'Completed', signed: true,  notes: 'Satisfactory progress. Initial EPA prep discussed.' },
-  { date: '2025-02-20', status: 'Upcoming',  signed: false, notes: '' },
-];
+const tabs = ["Overview", "Attendance & OTJH", "Progress Reviews", "Notes & Timeline", "Evidence", "Actions", "Safeguarding"];
 
 export default function LearnerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('Overview');
-  const [aiExpanded, setAiExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState("Overview");
+  const [learner, setLearner] = useState<Learner | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const learner = mockLearners.find((l) => l.id === id);
+  useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      setError("Missing learner id");
+      return;
+    }
 
-  if (!learner) return (
-    <AppLayout title="Learner Not Found">
-      <div className="text-center py-20 text-slate-400">
-        <i className="ri-user-unfollow-line text-5xl text-slate-300 block mb-3"></i>
-        <p className="text-lg font-medium text-slate-600">Learner not found</p>
-        <button onClick={() => navigate('/learners')} className="btn-primary mt-4">
-          <i className="ri-arrow-left-line mr-1"></i> Back to Learners
-        </button>
-      </div>
-    </AppLayout>
-  );
+    let cancelled = false;
 
-  const learnerEvidence = mockEvidence.filter((e) => e.linked_learner_id === id);
-  const learnerActions = mockActions.filter((a) => a.linked_learner_id === id);
-  const otjhPct = Math.round((learner.otjh_logged / learner.otjh_target) * 100);
-  const otjhRemaining = learner.otjh_target - learner.otjh_logged;
+    async function loadLearner() {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await fetchLearner(id);
+        if (!cancelled) {
+          setLearner(data);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setLearner(null);
+          setError(loadError instanceof Error ? loadError.message : "Failed to load learner");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
 
-  const attStatus = learner.attendance_pct >= 90 ? 'Green' : learner.attendance_pct >= 80 ? 'Amber' : 'Red';
-  const otjhStatus = otjhPct >= 85 ? 'Green' : otjhPct >= 70 ? 'Amber' : 'Red';
-  const progStatus = learner.progress >= 80 ? 'Green' : learner.progress >= 60 ? 'Amber' : 'Red';
+    void loadLearner();
 
-  const priorityColor: Record<string, string> = {
-    Critical: 'bg-red-50 text-red-700 border border-red-200',
-    High: 'bg-amber-50 text-amber-700 border border-amber-200',
-    Medium: 'bg-slate-100 text-slate-600',
-    Low: 'bg-slate-50 text-slate-400',
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <AppLayout title="Loading learner">
+        <div className="py-20 text-center text-slate-400">Loading learner from Neon...</div>
+      </AppLayout>
+    );
+  }
+
+  if (!learner) {
+    return (
+      <AppLayout title="Learner Not Found">
+        <div className="py-20 text-center text-slate-400">
+          <i className="ri-user-unfollow-line mb-3 block text-5xl text-slate-300"></i>
+          <p className="text-lg font-medium text-slate-600">{error || "Learner not found"}</p>
+          <button onClick={() => navigate("/learners")} className="btn-primary mt-4">
+            <i className="ri-arrow-left-line mr-1"></i> Back to Learners
+          </button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const learnerEvidence: unknown[] = [];
+  const learnerActions: unknown[] = [];
+  const reviews = learner.reviews;
+  const attendanceHistory = learner.attendance_history ?? [];
+  const timeline = learner.timeline ?? [];
+  const otjhPct = learner.otjh_target > 0 ? Math.round((learner.otjh_logged / learner.otjh_target) * 100) : 0;
+  const otjhRemaining = Math.max(0, learner.otjh_target - learner.otjh_logged);
+
+  const attStatus = learner.attendance_pct >= 90 ? "Green" : learner.attendance_pct >= 80 ? "Amber" : "Red";
+  const otjhStatus = otjhPct >= 85 ? "Green" : otjhPct >= 70 ? "Amber" : "Red";
+  const progStatus = learner.progress >= 80 ? "Green" : learner.progress >= 60 ? "Amber" : "Red";
+
+  const latestAttendance = learner.recent_sessions?.[0];
 
   return (
     <AppLayout title={learner.full_name}>
       <div className="space-y-5">
-
-        {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs text-slate-400">
-          <button onClick={() => navigate('/learners')} className="hover:text-brand-600 cursor-pointer transition-colors">
+          <button onClick={() => navigate("/learners")} className="cursor-pointer transition-colors hover:text-brand-600">
             Learners
           </button>
           <i className="ri-arrow-right-s-line"></i>
-          <span className="text-slate-700 font-medium">{learner.full_name}</span>
+          <span className="font-medium text-slate-700">{learner.full_name}</span>
         </div>
 
-        {/* ── Profile Header Card ── */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          {/* Coloured top strip based on RAG */}
-          <div className={`h-1.5 w-full ${learner.rag_status === 'Green' ? 'bg-emerald-500' : learner.rag_status === 'Amber' ? 'bg-amber-400' : 'bg-red-500'}`}></div>
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className={`h-1.5 w-full ${learner.rag_status === "Green" ? "bg-emerald-500" : learner.rag_status === "Amber" ? "bg-amber-400" : "bg-red-500"}`}></div>
 
           <div className="p-6">
-            <div className="flex flex-col md:flex-row md:items-start gap-5">
-              {/* Avatar */}
+            <div className="flex flex-col gap-5 md:flex-row md:items-start">
               <div className="relative flex-shrink-0">
-                <div className="w-16 h-16 rounded-xl bg-brand-700 flex items-center justify-center text-white text-xl font-bold">
-                  {learner.full_name.split(' ').map((n) => n[0]).join('')}
+                <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-700 text-xl font-bold text-white">
+                  {learner.full_name.split(" ").map((name) => name[0]).join("")}
                 </div>
-                <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${learner.rag_status === 'Green' ? 'bg-emerald-500' : learner.rag_status === 'Amber' ? 'bg-amber-400' : 'bg-red-500'}`}></span>
+                <span className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white ${learner.rag_status === "Green" ? "bg-emerald-500" : learner.rag_status === "Amber" ? "bg-amber-400" : "bg-red-500"}`}></span>
               </div>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-start gap-2">
                   <div>
                     <h2 className="text-xl font-bold text-slate-900">{learner.full_name}</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">{learner.email}</p>
+                    <p className="mt-0.5 text-sm text-slate-500">{learner.email}</p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 ml-auto">
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
                     <RagBadge status={learner.rag_status} size="md" />
-                    {learner.risk_flags.map((f) => (
-                      <span key={f} className="badge bg-red-50 text-red-600 border border-red-200 text-xs">
-                        <i className="ri-alarm-warning-line mr-1"></i>{f}
+                    {learner.risk_flags.map((flag) => (
+                      <span key={flag} className="badge border border-red-200 bg-red-50 text-xs text-red-600">
+                        <i className="ri-alarm-warning-line mr-1"></i>
+                        {flag}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                {/* Meta grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
                   {[
-                    { icon: 'ri-book-open-line',     label: 'Programme',    value: learner.programme },
-                    { icon: 'ri-building-2-line',    label: 'Employer',     value: learner.employer },
-                    { icon: 'ri-user-3-line',        label: 'Coach',        value: learner.coach },
-                    { icon: 'ri-group-line',         label: 'Cohort',       value: learner.cohort },
-                    { icon: 'ri-calendar-line',      label: 'Start Date',   value: learner.start_date },
-                    { icon: 'ri-calendar-check-line',label: 'Expected End', value: learner.expected_end_date },
-                    { icon: 'ri-time-line',          label: 'Last Review',  value: learner.last_review },
-                    { icon: 'ri-calendar-event-line',label: 'Next Review',  value: learner.next_review },
-                  ].map((f) => (
-                    <div key={f.label} className="flex items-start gap-2">
-                      <div className="w-7 h-7 rounded-md bg-slate-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <i className={`${f.icon} text-slate-400 text-xs`}></i>
+                    { icon: "ri-book-open-line", label: "Programme", value: learner.programme },
+                    { icon: "ri-building-2-line", label: "Employer", value: learner.employer },
+                    { icon: "ri-user-3-line", label: "Coach", value: learner.coach },
+                    { icon: "ri-group-line", label: "Cohort", value: learner.cohort },
+                    { icon: "ri-calendar-line", label: "Start Date", value: learner.start_date || "N/A" },
+                    { icon: "ri-calendar-check-line", label: "Expected End", value: learner.expected_end_date || "N/A" },
+                    { icon: "ri-time-line", label: "Last Review", value: learner.last_review || "N/A" },
+                  ].map((field) => (
+                    <div key={field.label} className="flex items-start gap-2">
+                      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-slate-100">
+                        <i className={`${field.icon} text-xs text-slate-400`}></i>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-400">{f.label}</div>
-                        <div className="text-xs font-semibold text-slate-800 mt-0.5">{f.value}</div>
+                        <div className="text-xs text-slate-400">{field.label}</div>
+                        <div className="mt-0.5 text-xs font-semibold text-slate-800">{field.value}</div>
                       </div>
                     </div>
                   ))}
@@ -126,126 +155,106 @@ export default function LearnerDetail() {
               </div>
             </div>
 
-            {/* KPI strip */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-100">
+            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 md:grid-cols-4">
               {[
-                { label: 'Attendance', value: `${learner.attendance_pct}%`, status: attStatus, icon: 'ri-calendar-check-line', sub: learner.attendance_pct >= 90 ? 'On target' : 'Below 90% target' },
-                { label: 'OTJH Progress', value: `${otjhPct}%`, status: otjhStatus, icon: 'ri-timer-line', sub: `${learner.otjh_logged}h of ${learner.otjh_target}h` },
-                { label: 'Overall Progress', value: `${learner.progress}%`, status: progStatus, icon: 'ri-bar-chart-line', sub: 'Portfolio & assessments' },
-                { label: 'Next Review', value: learner.next_review, status: 'neutral', icon: 'ri-calendar-event-line', sub: 'Scheduled' },
-              ].map((k) => (
-                <div key={k.label} className={`rounded-lg p-3.5 border ${k.status === 'Green' ? 'bg-emerald-50 border-emerald-100' : k.status === 'Amber' ? 'bg-amber-50 border-amber-100' : k.status === 'Red' ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <i className={`${k.icon} text-sm ${k.status === 'Green' ? 'text-emerald-500' : k.status === 'Amber' ? 'text-amber-500' : k.status === 'Red' ? 'text-red-500' : 'text-slate-400'}`}></i>
-                    <span className="text-xs text-slate-500">{k.label}</span>
+                {
+                  label: "Attendance",
+                  value: `${learner.attendance_pct}%`,
+                  status: attStatus,
+                  icon: "ri-calendar-check-line",
+                  sub: `${learner.sessions_attended}/${learner.sessions_total} sessions attended`,
+                },
+                {
+                  label: "OTJH",
+                  value: `${otjhPct}%`,
+                  status: otjhStatus,
+                  icon: "ri-timer-line",
+                  sub: `${learner.otjh_logged}h of ${learner.otjh_target}h`,
+                },
+                {
+                  label: "Progress",
+                  value: `${learner.progress}%`,
+                  status: progStatus,
+                  icon: "ri-bar-chart-line",
+                  sub: `${learner.completed_comp_count}/${learner.total_comp_count} components`,
+                },
+                {
+                  label: "Reviews",
+                  value: `${reviews.filter((review) => review.status === "Not Started").length}`,
+                  status: "neutral",
+                  icon: "ri-calendar-event-line",
+                  sub: "scheduled reviews",
+                },
+              ].map((kpi) => (
+                <div key={kpi.label} className={`rounded-lg border p-3.5 ${kpi.status === "Green" ? "border-emerald-100 bg-emerald-50" : kpi.status === "Amber" ? "border-amber-100 bg-amber-50" : kpi.status === "Red" ? "border-red-100 bg-red-50" : "border-slate-100 bg-slate-50"}`}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <i className={`${kpi.icon} text-sm ${kpi.status === "Green" ? "text-emerald-500" : kpi.status === "Amber" ? "text-amber-500" : kpi.status === "Red" ? "text-red-500" : "text-slate-400"}`}></i>
+                    <span className="text-xs text-slate-500">{kpi.label}</span>
                   </div>
-                  <div className="text-xl font-bold text-slate-900">{k.value}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{k.sub}</div>
+                  <div className="text-xl font-bold text-slate-900">{kpi.value}</div>
+                  <div className="mt-0.5 text-xs text-slate-400">{kpi.sub}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="border-b border-slate-200 flex overflow-x-auto">
-            {tabs.map((t) => (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex overflow-x-auto border-b border-slate-200">
+            {tabs.map((tab) => (
               <button
-                key={t}
-                onClick={() => setActiveTab(t)}
-                className={`tab-item flex-shrink-0 ${activeTab === t ? 'tab-active' : 'tab-inactive'}`}
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`tab-item flex-shrink-0 ${activeTab === tab ? "tab-active" : "tab-inactive"}`}
               >
-                {t === 'Evidence' && learnerEvidence.length > 0 && (
-                  <span className="ml-1 badge bg-brand-100 text-brand-600 text-xs py-0">{learnerEvidence.length}</span>
+                {tab === "Evidence" && learnerEvidence.length > 0 && (
+                  <span className="badge ml-1 bg-brand-100 py-0 text-xs text-brand-600">{learnerEvidence.length}</span>
                 )}
-                {t === 'Actions' && learnerActions.length > 0 && (
-                  <span className="ml-1 badge bg-red-100 text-red-600 text-xs py-0">{learnerActions.length}</span>
+                {tab === "Actions" && learnerActions.length > 0 && (
+                  <span className="badge ml-1 bg-red-100 py-0 text-xs text-red-600">{learnerActions.length}</span>
                 )}
-                {t !== 'Evidence' && t !== 'Actions' && t}
-                {t === 'Evidence' && 'Evidence'}
-                {t === 'Actions' && 'Actions'}
+                {tab}
               </button>
             ))}
           </div>
 
           <div className="p-5">
-
-            {/* ── OVERVIEW TAB ── */}
-            {activeTab === 'Overview' && (
+            {activeTab === "Overview" && (
               <div className="space-y-5">
-                {/* AI Summary */}
-                <div className="rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-slate-50 overflow-hidden">
-                  <div className="px-5 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-                        <i className="ri-sparkling-line text-white text-xs"></i>
-                      </div>
-                      <span className="text-sm font-semibold text-brand-900">AI-Generated Summary</span>
-                      <span className="badge bg-brand-100 text-brand-600 text-xs">Auto-updated</span>
+                <div className="overflow-hidden rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-slate-50">
+                  <div className="flex items-center gap-2 px-5 py-4">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600">
+                      <i className="ri-database-2-line text-xs text-white"></i>
                     </div>
-                    <button onClick={() => setAiExpanded(!aiExpanded)} className="text-xs text-brand-600 hover:underline cursor-pointer">
-                      {aiExpanded ? 'Collapse' : 'Expand'}
-                    </button>
+                    <span className="text-sm font-semibold text-brand-900">Live Learner Summary</span>
+                    <span className="badge bg-brand-100 text-xs text-brand-600">Neon-backed</span>
                   </div>
                   <div className="px-5 pb-4">
-                    <p className="text-sm text-slate-700 leading-relaxed">
-                      {learner.rag_status === 'Red' && (
-                        <><strong className="text-red-600">{learner.full_name} requires urgent attention.</strong> Attendance has dropped to {learner.attendance_pct}% (below the 80% threshold) and OTJH is critically low at {otjhPct}% of the {learner.otjh_target}h target — only {learner.otjh_logged}h logged to date. Multiple risk flags are active. A formal intervention plan has been initiated with the employer.</>
-                      )}
-                      {learner.rag_status === 'Amber' && (
-                        <><strong className="text-amber-700">{learner.full_name} is making solid progress overall</strong> but requires monitoring. Attendance is {learner.attendance_pct}% — within acceptable range. The primary concern is OTJH, currently at {otjhPct}% of the {learner.otjh_target}h target ({learner.otjh_logged}h logged, {otjhRemaining}h remaining). A catch-up plan has been agreed with the learner and employer. Progress reviews are up to date. No safeguarding concerns identified.</>
-                      )}
-                      {learner.rag_status === 'Green' && (
-                        <><strong className="text-emerald-700">{learner.full_name} is performing excellently.</strong> Attendance is {learner.attendance_pct}%, OTJH is on track at {otjhPct}% ({learner.otjh_logged}h logged of {learner.otjh_target}h target), and overall portfolio progress stands at {learner.progress}%. Progress reviews are completed and up to date. No risks or concerns at this time. On track for timely completion.</>
-                      )}
-                    </p>
-                    {aiExpanded && (
-                      <div className="mt-3 pt-3 border-t border-brand-100 grid grid-cols-3 gap-3">
-                        {[
-                          { label: 'Strengths', items: ['Consistent engagement', 'Positive employer relationship', 'Portfolio quality strong'], color: 'text-emerald-700 bg-emerald-50' },
-                          { label: 'Areas to Watch', items: learner.risk_flags.length > 0 ? learner.risk_flags : ['Monitor OTJH monthly', 'Ensure next review is scheduled'], color: 'text-amber-700 bg-amber-50' },
-                          { label: 'Recommended Actions', items: ['Schedule next progress review', 'Log OTJH with employer', 'Upload evidence to vault'], color: 'text-brand-700 bg-brand-50' },
-                        ].map((section) => (
-                          <div key={section.label} className={`rounded-lg p-3 ${section.color.split(' ')[1]}`}>
-                            <p className={`text-xs font-semibold mb-2 ${section.color.split(' ')[0]}`}>{section.label}</p>
-                            <ul className="space-y-1">
-                              {section.items.map((item, i) => (
-                                <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
-                                  <span className="w-1 h-1 rounded-full bg-slate-400 mt-1.5 flex-shrink-0"></span>
-                                  {item}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-sm leading-relaxed text-slate-700">{learner.summary_text}</p>
                   </div>
                 </div>
 
-                {/* Risk flags + quick stats */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  <div className="bg-white rounded-xl border border-slate-200 p-5">
-                    <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                       <i className="ri-alarm-warning-line text-slate-400"></i> Risk Flags
                     </h3>
                     {learner.risk_flags.length === 0 ? (
-                      <div className="flex items-center gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-lg">
-                        <i className="ri-checkbox-circle-line text-emerald-500 text-lg"></i>
+                      <div className="flex items-center gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                        <i className="ri-checkbox-circle-line text-lg text-emerald-500"></i>
                         <div>
                           <p className="text-sm font-medium text-emerald-800">No active risk flags</p>
-                          <p className="text-xs text-emerald-600">This learner has no concerns at this time</p>
+                          <p className="text-xs text-emerald-600">No risk rules were triggered by the live learner metrics</p>
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {learner.risk_flags.map((f) => (
-                          <div key={f} className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-100 rounded-lg">
-                            <i className="ri-alarm-warning-line text-red-500 mt-0.5"></i>
+                        {learner.risk_flags.map((flag) => (
+                          <div key={flag} className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+                            <i className="ri-alarm-warning-line mt-0.5 text-red-500"></i>
                             <div>
-                              <p className="text-sm font-medium text-red-800">{f}</p>
-                              <p className="text-xs text-red-500">Requires immediate attention</p>
+                              <p className="text-sm font-medium text-red-800">{flag}</p>
+                              <p className="text-xs text-red-500">Derived from live attendance, OTJH, progress, or coach RAG data</p>
                             </div>
                           </div>
                         ))}
@@ -253,156 +262,144 @@ export default function LearnerDetail() {
                     )}
                   </div>
 
-                  <div className="bg-white rounded-xl border border-slate-200 p-5">
-                    <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                      <i className="ri-bar-chart-line text-slate-400"></i> Quick Stats
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <i className="ri-bar-chart-line text-slate-400"></i> KPI Counts
                     </h3>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
                       {[
-                        { label: 'Attendance', value: learner.attendance_pct, unit: '%', target: 90, color: attStatus === 'Green' ? '#10b981' : attStatus === 'Amber' ? '#f59e0b' : '#ef4444' },
-                        { label: 'OTJH Progress', value: otjhPct, unit: '%', target: 100, color: otjhStatus === 'Green' ? '#10b981' : otjhStatus === 'Amber' ? '#f59e0b' : '#ef4444' },
-                        { label: 'Portfolio Progress', value: learner.progress, unit: '%', target: 100, color: progStatus === 'Green' ? '#10b981' : progStatus === 'Amber' ? '#f59e0b' : '#ef4444' },
-                      ].map((s) => (
-                        <div key={s.label}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-slate-500">{s.label}</span>
-                            <span className="text-xs font-bold text-slate-800">{s.value}{s.unit}</span>
-                          </div>
-                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(s.value, 100)}%`, backgroundColor: s.color }}></div>
-                          </div>
+                        { label: "Components Completed", value: learner.completed_comp_count, sub: `of ${learner.total_comp_count}` },
+                        { label: "Components On Target", value: learner.target_comp_count, sub: `target rows in kbc_users_data` },
+                        { label: "KSB Completed", value: learner.total_completed_ksb, sub: `of ${learner.total_target_ksb}` },
+                        { label: "Sessions Missed", value: learner.sessions_missed, sub: `of ${learner.sessions_total}` },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-lg bg-slate-50 p-3">
+                          <div className="text-xs text-slate-400">{item.label}</div>
+                          <div className="mt-1 text-lg font-bold text-slate-900">{item.value}</div>
+                          <div className="mt-0.5 text-xs text-slate-400">{item.sub}</div>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Recent activity preview */}
-                <div className="bg-white rounded-xl border border-slate-200 p-5">
-                  <div className="flex items-center justify-between mb-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-800">Recent Activity</h3>
-                    <button onClick={() => setActiveTab('Notes & Timeline')} className="text-xs text-brand-600 hover:underline cursor-pointer">
+                    <button onClick={() => setActiveTab("Notes & Timeline")} className="cursor-pointer text-xs text-brand-600 hover:underline">
                       Full timeline &rarr;
                     </button>
                   </div>
                   <div className="space-y-3">
-                    {[
-                      { type: 'Review', text: 'Q4 Progress Review completed — OTJH plan agreed', date: '2024-11-28', icon: 'ri-clipboard-line', color: 'text-brand-500 bg-brand-50' },
-                      { type: 'Note', text: 'Coaching session: EPA preparation discussed', date: '2024-11-10', icon: 'ri-sticky-note-line', color: 'text-slate-500 bg-slate-100' },
-                      { type: 'Upload', text: 'Evidence uploaded: Progress Review Oct 2024', date: '2024-10-30', icon: 'ri-upload-cloud-2-line', color: 'text-emerald-500 bg-emerald-50' },
-                    ].map((ev, i) => (
-                      <div key={i} className="flex items-start gap-3">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${ev.color.split(' ')[1]}`}>
-                          <i className={`${ev.icon} ${ev.color.split(' ')[0]} text-xs`}></i>
+                    {timeline.slice(0, 3).map((event) => (
+                      <div key={event.id} className="flex items-start gap-3">
+                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100">
+                          <i className={`${event.type === "Alert" ? "ri-alarm-warning-line text-red-500" : event.type === "Review" ? "ri-clipboard-line text-brand-500" : event.type === "Attendance" ? "ri-calendar-check-line text-amber-500" : "ri-flag-line text-emerald-500"} text-xs`}></i>
                         </div>
                         <div className="flex-1">
-                          <p className="text-xs text-slate-700">{ev.text}</p>
-                          <p className="text-xs text-slate-400 mt-0.5">{ev.date}</p>
+                          <p className="text-xs text-slate-700">{event.text}</p>
+                          <p className="mt-0.5 text-xs text-slate-400">{event.date}</p>
                         </div>
                       </div>
                     ))}
+                    {timeline.length === 0 && <div className="text-sm text-slate-400">No learner activity records found</div>}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* ── ATTENDANCE & OTJH TAB ── */}
-            {activeTab === 'Attendance & OTJH' && (
+            {activeTab === "Attendance & OTJH" && (
               <div className="space-y-5">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-                  {/* Attendance card */}
-                  <div className="bg-white rounded-xl border border-slate-200 p-5">
-                    <div className="flex items-center justify-between mb-4">
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <div className="mb-4 flex items-center justify-between">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-800">Attendance Record</h3>
-                        <p className="text-xs text-slate-400">Monthly attendance vs 90% target</p>
+                        <p className="text-xs text-slate-400">Monthly attendance aggregated from `kbc_attendance`</p>
                       </div>
                       <RagBadge status={attStatus} />
                     </div>
-                    <LearnerAttendanceChart attendancePct={learner.attendance_pct} />
-                    <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                    <LearnerAttendanceChart history={attendanceHistory} />
+                    <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-4">
                       {[
-                        { label: 'Overall', value: `${learner.attendance_pct}%`, color: attStatus === 'Green' ? 'text-emerald-600' : attStatus === 'Amber' ? 'text-amber-600' : 'text-red-600' },
-                        { label: 'Sessions Attended', value: '47', color: 'text-slate-800' },
-                        { label: 'Sessions Missed', value: learner.attendance_pct >= 90 ? '2' : learner.attendance_pct >= 80 ? '5' : '12', color: 'text-slate-800' },
-                      ].map((s) => (
-                        <div key={s.label} className="text-center bg-slate-50 rounded-lg p-2.5">
-                          <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-                          <div className="text-xs text-slate-400">{s.label}</div>
+                        { label: "Overall", value: `${learner.attendance_pct}%`, color: attStatus === "Green" ? "text-emerald-600" : attStatus === "Amber" ? "text-amber-600" : "text-red-600" },
+                        { label: "Sessions Attended", value: `${learner.sessions_attended}`, color: "text-slate-800" },
+                        { label: "Sessions Missed", value: `${learner.sessions_missed}`, color: "text-slate-800" },
+                      ].map((stat) => (
+                        <div key={stat.label} className="rounded-lg bg-slate-50 p-2.5 text-center">
+                          <div className={`text-lg font-bold ${stat.color}`}>{stat.value}</div>
+                          <div className="text-xs text-slate-400">{stat.label}</div>
                         </div>
                       ))}
                     </div>
+                    {latestAttendance && (
+                      <div className="mt-3 text-xs text-slate-400">
+                        Latest attendance record: {latestAttendance.date} • {latestAttendance.attendance === 1 ? "Attended" : "Missed"} • {latestAttendance.module || "Session"}
+                      </div>
+                    )}
                   </div>
 
-                  {/* OTJH card */}
-                  <div className="bg-white rounded-xl border border-slate-200 p-5">
-                    <div className="flex items-center justify-between mb-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <div className="mb-4 flex items-center justify-between">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-800">Off-the-Job Hours (OTJH)</h3>
-                        <p className="text-xs text-slate-400">Monthly hours logged vs monthly target</p>
+                        <p className="text-xs text-slate-400">Live comparison between logged and target hours</p>
                       </div>
                       <RagBadge status={otjhStatus} />
                     </div>
                     <LearnerOTJHChart logged={learner.otjh_logged} target={learner.otjh_target} />
-                    <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                    <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-4">
                       {[
-                        { label: 'Logged', value: `${learner.otjh_logged}h`, color: 'text-brand-600' },
-                        { label: 'Target', value: `${learner.otjh_target}h`, color: 'text-slate-800' },
-                        { label: 'Remaining', value: `${Math.max(0, otjhRemaining)}h`, color: otjhRemaining > 0 ? 'text-amber-600' : 'text-emerald-600' },
-                      ].map((s) => (
-                        <div key={s.label} className="text-center bg-slate-50 rounded-lg p-2.5">
-                          <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-                          <div className="text-xs text-slate-400">{s.label}</div>
+                        { label: "Logged", value: `${learner.otjh_logged}h`, color: "text-brand-600" },
+                        { label: "Target", value: `${learner.otjh_target}h`, color: "text-slate-800" },
+                        { label: "Remaining", value: `${otjhRemaining}h`, color: otjhRemaining > 0 ? "text-amber-600" : "text-emerald-600" },
+                      ].map((stat) => (
+                        <div key={stat.label} className="rounded-lg bg-slate-50 p-2.5 text-center">
+                          <div className={`text-lg font-bold ${stat.color}`}>{stat.value}</div>
+                          <div className="text-xs text-slate-400">{stat.label}</div>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Portfolio progress chart */}
-                <div className="bg-white rounded-xl border border-slate-200 p-5">
-                  <div className="flex items-center justify-between mb-4">
+                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="mb-4 flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-800">Portfolio &amp; Programme Progress</h3>
-                      <p className="text-xs text-slate-400">Actual progress vs expected trajectory</p>
+                      <h3 className="text-sm font-semibold text-slate-800">Programme Progress</h3>
+                      <p className="text-xs text-slate-400">Current completion metrics from `kbc_users_data`</p>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-slate-400">
-                      <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded"></span> Actual</span>
-                      <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-slate-200 inline-block rounded"></span> Expected</span>
-                    </div>
-                  </div>
-                  <LearnerProgressChart progress={learner.progress} />
-                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100">
-                    <span>Current: <strong className="text-slate-800">{learner.progress}%</strong></span>
                     <RagBadge status={progStatus} />
                   </div>
+                  <LearnerProgressChart
+                    progress={learner.progress}
+                    completedComponents={learner.completed_comp_count}
+                    totalComponents={learner.total_comp_count}
+                    completedKsb={learner.total_completed_ksb}
+                    totalKsb={learner.total_target_ksb}
+                  />
                 </div>
               </div>
             )}
 
-            {/* ── PROGRESS REVIEWS TAB ── */}
-            {activeTab === 'Progress Reviews' && (
+            {activeTab === "Progress Reviews" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="grid grid-cols-3 gap-3 flex-1">
+                  <div className="grid flex-1 grid-cols-3 gap-3">
                     {[
-                      { label: 'Completed', count: reviews.filter(r => r.status === 'Completed').length, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-                      { label: 'Upcoming', count: reviews.filter(r => r.status === 'Upcoming').length, color: 'text-brand-600 bg-brand-50 border-brand-100' },
-                      { label: 'Unsigned', count: reviews.filter(r => r.status === 'Completed' && !r.signed).length, color: 'text-amber-600 bg-amber-50 border-amber-100' },
-                    ].map((s) => (
-                      <div key={s.label} className={`rounded-lg border p-3 text-center ${s.color}`}>
-                        <div className="text-xl font-bold">{s.count}</div>
-                        <div className="text-xs font-medium mt-0.5">{s.label}</div>
+                      { label: "Completed", count: reviews.filter((review) => review.status === "Completed").length, color: "border-emerald-100 bg-emerald-50 text-emerald-600" },
+                      { label: "Upcoming", count: reviews.filter((review) => review.status === "Not Started").length, color: "border-brand-100 bg-brand-50 text-brand-600" },
+                      { label: "Pending", count: reviews.filter((review) => review.status === "Not Started" && !review.actual_date).length, color: "border-amber-100 bg-amber-50 text-amber-600" },
+                    ].map((summary) => (
+                      <div key={summary.label} className={`rounded-lg border p-3 text-center ${summary.color}`}>
+                        <div className="text-xl font-bold">{summary.count}</div>
+                        <div className="mt-0.5 text-xs font-medium">{summary.label}</div>
                       </div>
                     ))}
                   </div>
-                  <button className="btn-primary text-xs ml-4 flex-shrink-0">
-                    <i className="ri-add-line mr-1"></i> Schedule Review
-                  </button>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="overflow-hidden rounded-xl border border-slate-200">
                   <table className="w-full">
                     <thead>
                       <tr>
@@ -410,146 +407,85 @@ export default function LearnerDetail() {
                         <th className="table-th">Coach</th>
                         <th className="table-th">Status</th>
                         <th className="table-th">Signed</th>
-                        <th className="table-th">Notes</th>
-                        <th className="table-th"></th>
+                        <th className="table-th">Source</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {reviews.map((r, i) => (
-                        <tr key={i} className="table-row">
-                          <td className="table-td font-medium text-xs">{r.date}</td>
+                      {reviews.map((review, index) => (
+                        <tr key={`${review.planned_date}-${index}`} className="table-row">
+                          <td className="table-td text-xs font-medium">
+                            <div>{review.planned_date}</div>
+                            <div className="font-normal text-slate-400">{review.type}</div>
+                          </td>
                           <td className="table-td text-xs">{learner.coach}</td>
                           <td className="table-td">
-                            <span className={`badge ${r.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : r.status === 'Overdue' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-slate-100 text-slate-600'}`}>
-                              {r.status}
+                            <span className={`badge ${review.status === "Completed" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                              {review.status}
                             </span>
                           </td>
-                          <td className="table-td">
-                            {r.status === 'Completed' && (
-                              r.signed
-                                ? <span className="flex items-center gap-1 text-emerald-600 text-xs"><i className="ri-check-line"></i> Signed</span>
-                                : <span className="flex items-center gap-1 text-amber-600 text-xs"><i className="ri-time-line"></i> Pending</span>
-                            )}
-                            {r.status === 'Upcoming' && <span className="text-xs text-slate-400">—</span>}
-                          </td>
-                          <td className="table-td text-xs text-slate-500 max-w-xs">{r.notes || '—'}</td>
-                          <td className="table-td">
-                            {r.status === 'Completed' && (
-                              <button className="btn-ghost text-xs py-1 px-2">
-                                <i className="ri-eye-line mr-1"></i> View
-                              </button>
-                            )}
-                          </td>
+                          <td className="table-td text-xs text-slate-500">{review.actual_date || "—"}</td>
+                          <td className="table-td text-xs text-slate-400">kbc_users_data review slots</td>
                         </tr>
                       ))}
+                      {reviews.length === 0 && (
+                        <tr>
+                          <td className="px-4 py-8 text-center text-sm text-slate-400" colSpan={5}>
+                            No review slots found for this learner
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* ── NOTES & TIMELINE TAB ── */}
-            {activeTab === 'Notes & Timeline' && (
-              <LearnerTimeline learnerName={learner.full_name} coachName={learner.coach} />
-            )}
+            {activeTab === "Notes & Timeline" && <LearnerTimeline events={timeline} />}
 
-            {/* ── EVIDENCE TAB ── */}
-            {activeTab === 'Evidence' && (
+            {activeTab === "Evidence" && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-500">{learnerEvidence.length} document{learnerEvidence.length !== 1 ? 's' : ''} linked to this learner</p>
-                  <button className="btn-primary text-xs flex items-center gap-1.5">
+                  <p className="text-sm text-slate-500">{learnerEvidence.length} document{learnerEvidence.length !== 1 ? "s" : ""} linked to this learner</p>
+                  <button className="btn-primary flex items-center gap-1.5 text-xs">
                     <i className="ri-upload-cloud-2-line"></i> Upload Evidence
                   </button>
                 </div>
-                {learnerEvidence.length === 0 ? (
-                  <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                    <i className="ri-folder-open-line text-4xl text-slate-300 block mb-2"></i>
-                    <p className="text-sm text-slate-400">No evidence linked to this learner yet</p>
-                    <button className="btn-primary mt-3 text-xs">Upload first document</button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {learnerEvidence.map((ev) => (
-                      <div key={ev.id} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-brand-300 hover:bg-slate-50 transition-all cursor-pointer">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${ev.file_type === 'PDF' ? 'bg-red-50 text-red-500' : ev.file_type === 'DOCX' ? 'bg-brand-50 text-brand-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                          <i className="ri-file-3-line text-base"></i>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-slate-800">{ev.title}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">{ev.category} &middot; {ev.inspection_theme} &middot; {ev.uploaded_by} &middot; {ev.created_at}</div>
-                          <div className="flex gap-1 mt-1.5">{ev.tags.map((t) => <span key={t} className="badge bg-slate-100 text-slate-500 text-xs">{t}</span>)}</div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1.5">
-                          <span className={`badge ${ev.review_status === 'Verified' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>{ev.review_status}</span>
-                          <span className="text-xs text-slate-400">{ev.file_type} &middot; {ev.file_size}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-12 text-center">
+                  <i className="ri-folder-open-line mb-2 block text-4xl text-slate-300"></i>
+                  <p className="text-sm text-slate-400">No evidence linked to this learner yet</p>
+                </div>
               </div>
             )}
 
-            {/* ── ACTIONS TAB ── */}
-            {activeTab === 'Actions' && (
+            {activeTab === "Actions" && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-500">{learnerActions.length} action{learnerActions.length !== 1 ? 's' : ''} linked to this learner</p>
-                  <button className="btn-primary text-xs flex items-center gap-1.5">
+                  <p className="text-sm text-slate-500">{learnerActions.length} action{learnerActions.length !== 1 ? "s" : ""} linked to this learner</p>
+                  <button className="btn-primary flex items-center gap-1.5 text-xs">
                     <i className="ri-add-line"></i> Create Action
                   </button>
                 </div>
-                {learnerActions.length === 0 ? (
-                  <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                    <i className="ri-task-line text-4xl text-slate-300 block mb-2"></i>
-                    <p className="text-sm text-slate-400">No actions for this learner</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {learnerActions.map((a) => {
-                      const isOverdue = new Date(a.due_date) < new Date('2024-12-01') && a.status !== 'Completed';
-                      return (
-                        <div key={a.id} className="p-4 bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition-colors">
-                          <div className="flex items-start gap-3">
-                            <span className={`badge mt-0.5 flex-shrink-0 ${priorityColor[a.priority]}`}>{a.priority}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-slate-800">{a.title}</p>
-                              <p className="text-xs text-slate-400 mt-1">{a.description}</p>
-                              <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                                <span><i className="ri-user-line mr-1"></i>{a.owner}</span>
-                                <span className={`flex items-center gap-0.5 ${isOverdue ? 'text-red-500 font-medium' : ''}`}>
-                                  {isOverdue && <i className="ri-alarm-warning-line"></i>}
-                                  <i className="ri-calendar-line mr-0.5"></i>{a.due_date}
-                                </span>
-                                <span className="badge bg-slate-100 text-slate-600">{a.status}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-12 text-center">
+                  <i className="ri-task-line mb-2 block text-4xl text-slate-300"></i>
+                  <p className="text-sm text-slate-400">No actions for this learner</p>
+                </div>
               </div>
             )}
 
-            {/* ── SAFEGUARDING TAB ── */}
-            {activeTab === 'Safeguarding' && (
+            {activeTab === "Safeguarding" && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mb-4">
-                  <i className="ri-lock-line text-amber-500 text-2xl"></i>
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50">
+                  <i className="ri-lock-line text-2xl text-amber-500"></i>
                 </div>
                 <h3 className="text-base font-semibold text-slate-800">Restricted Access</h3>
-                <p className="text-sm text-slate-500 mt-1 max-w-sm">
+                <p className="mt-1 max-w-sm text-sm text-slate-500">
                   Safeguarding records for this learner are restricted to authorised Safeguarding Leads and Directors only. All access is logged.
                 </p>
-                <button className="btn-primary mt-5" onClick={() => navigate('/safeguarding')}>
+                <button className="btn-primary mt-5" onClick={() => navigate("/safeguarding")}>
                   View Safeguarding Dashboard
                 </button>
               </div>
             )}
-
           </div>
         </div>
       </div>

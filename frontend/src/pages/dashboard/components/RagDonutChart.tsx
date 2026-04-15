@@ -1,14 +1,13 @@
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { useNavigate } from 'react-router-dom';
-import { mockRagBreakdown } from '@/mocks/dashboard';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { useNavigate } from "react-router-dom";
 
-const data = [
-  { name: 'Green', value: mockRagBreakdown.green, color: '#10b981' },
-  { name: 'Amber', value: mockRagBreakdown.amber, color: '#f59e0b' },
-  { name: 'Red', value: mockRagBreakdown.red, color: '#ef4444' },
-];
-
-const total = data.reduce((s, d) => s + d.value, 0);
+interface Props {
+  ragDistribution: {
+    Green: number;
+    Amber: number;
+    Red: number;
+  };
+}
 
 interface TooltipPayload {
   name: string;
@@ -18,25 +17,35 @@ interface TooltipPayload {
 interface CustomTooltipProps {
   active?: boolean;
   payload?: TooltipPayload[];
+  total: number;
 }
 
-function CustomTooltip({ active, payload }: CustomTooltipProps) {
+function CustomTooltip({ active, payload, total }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
-  const d = payload[0];
+  const point = payload[0];
   return (
-    <div className="bg-slate-900 text-white text-xs px-3 py-2 rounded-lg">
-      <p className="font-semibold">{d.name}: {d.value} learners</p>
-      <p className="text-slate-400">{Math.round((d.value / total) * 100)}% of cohort</p>
+    <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white">
+      <p className="font-semibold">{point.name}: {point.value} learners</p>
+      <p className="text-slate-400">{total > 0 ? Math.round((point.value / total) * 100) : 0}% of cohort</p>
     </div>
   );
 }
 
-export default function RagDonutChart() {
+export default function RagDonutChart({ ragDistribution }: Props) {
   const navigate = useNavigate();
+  const data = [
+    { name: "Green", value: ragDistribution.Green, color: "#10b981" },
+    { name: "Amber", value: ragDistribution.Amber, color: "#f59e0b" },
+    { name: "Red", value: ragDistribution.Red, color: "#ef4444" },
+  ];
+  const total = data.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="relative flex-1 min-h-0" style={{ height: 160 }}>
+    <div className="flex h-full flex-col">
+      <div
+        className="relative min-h-0 flex-1 [&_.recharts-surface]:border-0 [&_.recharts-surface]:outline-none [&_.recharts-wrapper]:border-0 [&_.recharts-wrapper]:outline-none"
+        style={{ height: 160 }}
+      >
         <ResponsiveContainer width="100%" height={160}>
           <PieChart>
             <Pie
@@ -51,37 +60,28 @@ export default function RagDonutChart() {
               endAngle={-270}
               strokeWidth={0}
             >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip total={total} />} />
           </PieChart>
         </ResponsiveContainer>
-        {/* Centre label */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-2xl font-bold text-slate-900">{total}</span>
-          <span className="text-xs text-slate-400">Learners</span>
-        </div>
       </div>
 
-      {/* Legend */}
-      <div className="space-y-2 mt-1">
-        {data.map((d) => (
-          <div key={d.name} className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }}></span>
-            <span className="text-xs text-slate-500 flex-1">{d.name}</span>
-            <span className="text-xs font-bold text-slate-800">{d.value}</span>
-            <span className="text-xs text-slate-400 w-8 text-right">{Math.round((d.value / total) * 100)}%</span>
+      <div className="mt-1 space-y-2">
+        {data.map((entry) => (
+          <div key={entry.name} className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: entry.color }}></span>
+            <span className="flex-1 text-xs text-slate-500">{entry.name}</span>
+            <span className="text-xs font-bold text-slate-800">{entry.value}</span>
+            <span className="w-8 text-right text-xs text-slate-400">{total > 0 ? Math.round((entry.value / total) * 100) : 0}%</span>
           </div>
         ))}
       </div>
 
-      <div className="mt-3 pt-3 border-t border-slate-100">
-        <button
-          onClick={() => navigate('/learners')}
-          className="text-xs text-brand-600 hover:underline cursor-pointer w-full text-center"
-        >
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <button onClick={() => navigate("/learners")} className="w-full cursor-pointer text-center text-xs text-brand-600 hover:underline">
           View all learners &rarr;
         </button>
       </div>
